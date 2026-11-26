@@ -47,6 +47,7 @@ button:hover,.btn:hover{background:var(--check)}
 button.primary,.btn.primary{background:var(--hot);border-color:var(--hot);color:var(--hot-ink)}
 button.primary:hover,.btn.primary:hover{filter:brightness(1.08)}
 button.sun{background:var(--sun);border-color:var(--sun);color:#19174d}
+button.wa,.btn.wa{background:#1fa855;border-color:#1fa855;color:#fff}
 button[aria-pressed="true"]{background:var(--ink);color:var(--card)}
 button:disabled{opacity:.45;cursor:not-allowed}
 :focus-visible{outline:3px solid var(--hot);outline-offset:2px}
@@ -270,6 +271,13 @@ textarea{width:100%;min-height:84px;font:400 .9rem var(--body);padding:10px 12px
       <h3>Sticker sin sonido</h3>
       <p class="note">Archivo WebP de 512 × 512 y menos de 100 KB, para cualquier app que importe stickers.</p>
       <div class="row"><button id="dlWebp">Descargar WebP</button><button id="dlPng">Descargar PNG</button></div>
+      <div id="packBox" hidden>
+        <h3>Mi paquete de WhatsApp</h3>
+        <p class="note">Guarda tus stickers en tu paquete. Cuando tengas 3 o más, añádelo a WhatsApp y aparecerán en tu bandeja de stickers. Este paquete no lleva sonido; los stickers con sonido se crean en el editor de WhatsApp.</p>
+        <div class="row"><button class="primary" id="packAdd">Guardar en mi paquete</button><button class="wa" id="packSend">Añadir a WhatsApp</button></div>
+        <p class="note" id="packInfo"></p>
+        <p><button id="packClear">Vaciar paquete</button></p>
+      </div>
     </section>
 
     <div class="pager"><button id="prevBtn" disabled>Atrás</button><button class="primary" id="nextBtn">Siguiente</button></div>
@@ -333,6 +341,8 @@ const cv = $("canvas"), ctx = cv.getContext("2d");
 const ov = $("overlay"), octx = ov.getContext("2d");
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const inClaude = !!(window.claude && typeof window.claude.use === "function");
+const native = window.SonoAndroid || null; // app de Android
+const blobB64 = blob => new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(",")[1] || ""); r.onerror = no; r.readAsDataURL(blob); });
 const dlPromise = inClaude ? window.claude.use("downloads").catch(() => null) : null;
 const mk = (w, h) => { const c = document.createElement("canvas"); c.width = w; c.height = h; return c; };
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -1097,6 +1107,11 @@ async function encodeRealtime(clip, env, D) {
 
 /* ---------- guardar y exportar ---------- */
 async function save(blob, name) {
+  if (native) {
+    try { toast(native.saveFile(name, blob.type || "application/octet-stream", await blobB64(blob))); }
+    catch (e) { toast("No se pudo guardar el archivo."); }
+    return;
+  }
   if (inClaude) {
     const d = await dlPromise;
     if (!d) { toast("Esta vista no permite descargar. Abre la página en un navegador."); return; }
@@ -1122,9 +1137,12 @@ function el(tag, props = {}, ...kids) { const e = Object.assign(document.createE
 function actions(items) {
   const row = el("div", { className: "row" });
   for (const [label, blob, name, primary] of items) row.append(el("button", { textContent: label, className: primary ? "primary" : "", onclick: () => save(blob, name) }));
-  if (!inClaude && navigator.canShare) {
+  if (native) {
+    const [, blob, name] = items[0];
+    row.append(el("button", { textContent: "Enviar a WhatsApp", className: "wa", onclick: async () => { try { native.shareFile(name, blob.type, await blobB64(blob)); } catch (e) { toast("No se pudo abrir WhatsApp."); } } }));
+  } else if (!inClaude && navigator.canShare) {
     const files = items.map(([, blob, name]) => new File([blob], name, { type: blob.type }));
-    if (navigator.canShare({ files })) row.append(el("button", { textContent: "Compartir", onclick: () => navigator.share({ files }).catch(e => { if (e.name !== "AbortError") toast("No se pudo compartir. Descarga el archivo."); }) }));
+    if (navigator.canShare({ files })) row.append(el("button", { textContent: "Enviar a WhatsApp", className: "wa", onclick: () => navigator.share({ files }).catch(e => { if (e.name !== "AbortError") toast("No se pudo compartir. Descarga el archivo."); }) }));
   }
   return row;
 }
@@ -1375,6 +1393,7 @@ const buyLabel = () => `Acceso de por vida S/ ${CFG.price}`;
 // La app de Play Store abre la página con referrer android-app://; ahí el pago ya lo cobró Google.
 const fromPlay = () => {
   if (!CFG.playFree) return false;
+  if (native) return true;
   if (/^android-app:\/\//.test(document.referrer)) store.set("sono_play", "1");
   return store.get("sono_play") === "1";
 };
@@ -1474,6 +1493,21 @@ $("activate").onclick = async () => {
   store.set("sono_license", code); $("license").value = ""; await openMember(); toast("Acceso activado.");
 };
 
+/* ---------- paquete de stickers (app de Android) ---------- */
+function packInfo() { const n = native.stickerCount(); $("packInfo").textContent = n ? `Tu paquete tiene ${n} sticker${n > 1 ? "s" : ""} (máximo 30).` + (n < 3 ? ` Te falta${3 - n > 1 ? "n" : ""} ${3 - n} para añadirlo.` : "") : "Tu paquete está vacío."; $("packSend").disabled = n < 3; $("packClear").disabled = !n; }
+if (native && native.stickerCount) {
+  $("packBox").hidden = false; packInfo();
+  $("packAdd").onclick = async () => {
+    if (!hasContent()) return;
+    const webp = await webpUnder(100 * 1024); if (!webp) { toast("No se pudo crear el sticker."); return; }
+    const t = mk(96, 96); t.getContext("2d").drawImage(still(), 0, 0, 96, 96);
+    toast(native.addSticker(await blobB64(webp), await blobB64(await toBlob(t, "image/png")))); packInfo();
+  };
+  $("packSend").onclick = () => native.addToWhatsApp();
+  $("packClear").onclick = () => { if (confirm("¿Vaciar tu paquete de stickers?")) { native.clearPack(); packInfo(); toast("Paquete vacío."); } };
+  window.sonoPackChanged = packInfo;
+}
+
 /* ---------- instalación ---------- */
 const isInstalled = () => matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
 let installEvent = null;
@@ -1482,7 +1516,7 @@ window.addEventListener("appinstalled", () => { $("installBtn").hidden = true; $
 $("installBtn").hidden = inClaude || isInstalled() || fromPlay();
 $("installBtn").onclick = () => $("install").showModal(); $("closeInstall").onclick = () => $("install").close();
 $("installNow").onclick = async () => { if (!installEvent) return; installEvent.prompt(); await installEvent.userChoice; installEvent = null; $("installNow").hidden = true; };
-if (!inClaude && "serviceWorker" in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register("sw.js").catch(() => {});
+if (!inClaude && !native && "serviceWorker" in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register("sw.js").catch(() => {});
 refreshMember().then(resumePayment);
 
 $("borderOut").textContent = S.border; $("tolOut").textContent = $("tol").value; $("brushOut").textContent = $("brush").value; $("volOut").textContent = "100 %";
