@@ -1,0 +1,41 @@
+plugins { id 'com.android.application' }
+
+def ks = System.getenv("SONO_KEYSTORE")
+
+android {
+    namespace 'pe.sonosticker.app'
+    compileSdk 36
+    defaultConfig {
+        applicationId 'pe.sonosticker.app'
+        minSdk 26
+        targetSdk 36
+        versionCode 1
+        versionName '1.0'
+    }
+    signingConfigs {
+        release {
+            if (ks) {
+                storeFile file(ks)
+                storePassword System.getenv("SONO_STORE_PASS")
+                keyAlias System.getenv("SONO_KEY_ALIAS")
+                keyPassword System.getenv("SONO_KEY_PASS")
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (ks) signingConfig signingConfigs.release
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    androidResources { noCompress += ['webp', 'png'] }
+}
+
+dependencies {
+    implementation 'androidx.webkit:webkit:1.12.1'
+    implementation 'androidx.core:core:1.13.1'
+}
