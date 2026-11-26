@@ -33,7 +33,7 @@ jobs:
         run: |
           mkdir -p builds
           cp app/build/outputs/apk/debug/app-debug.apk builds/sonosticker-prueba.apk 2>/dev/null || true
-          if [ -n "$SONO_KEYSTORE" ]; then cp app/build/outputs/bundle/release/app-release.aab builds/sonosticker-play.aab 2>/dev/null || true; fi
+          cp app/build/outputs/bundle/release/app-release.aab builds/sonosticker-play-sin-firma.aab 2>/dev/null || true
           tail -c 60000 builds/build.log > builds/build-tail.log || true
           rm -f builds/build.log
           echo "${{ job.status }} $(date -u)" > builds/estado.txt
